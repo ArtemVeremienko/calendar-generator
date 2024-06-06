@@ -27,7 +27,7 @@ const formatTimestampToUTC = (date) => {
 }
 
 const getDates = (start, end, dayIndex) => {
-  const duration = (end + HOURS_IN_DAY - start) % HOURS_IN_DAY
+  const duration = (end - start + HOURS_IN_DAY) % HOURS_IN_DAY
   const initial = set(setDay(new Date(), dayIndex), {
     minutes: 0,
     seconds: 0,
