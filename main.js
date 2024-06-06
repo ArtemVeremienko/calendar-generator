@@ -1,31 +1,91 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { format, set, add, setDay } from 'date-fns'
+import schedule from './schedule.json' with { type: 'json' }
 
-const TEMPLATES_DIR_PATH = './templates'
-const TEMPLATE_PATH = join(TEMPLATES_DIR_PATH, 'template.ics')
-const NEW_CALENDAR_PATH = join(TEMPLATES_DIR_PATH, 'new-light.ics')
+const TEMPLATE_PATH = './template.ics'
+const NEW_CALENDAR_PATH = join('./dist', 'blackout.ics')
 
-const createEvent = () => {
+const HOURS_IN_DAY = 24
+const DAYS_OF_WEEK = [
+  'sunday',
+  'monday',
+  'tuesday',
+  'wednesday',
+  'thursday',
+  'friday',
+  'saturday',
+]
+
+const formatByDay = (dayOfWeek) => dayOfWeek.slice(0, 2).toUpperCase()
+
+const formatDate = (date) => format(date, "yyyyMMdd'T'HHmmss")
+
+const formatTimestampToUTC = (date) => {
+  const dateWithoutTimezone = add(date, { minutes: date.getTimezoneOffset() })
+  return format(dateWithoutTimezone, "yyyyMMdd'T'HHmmss'Z'")
+}
+
+const getDates = (start, end, dayIndex) => {
+  const duration = (end + HOURS_IN_DAY - start) % HOURS_IN_DAY
+  const initial = set(setDay(new Date(), dayIndex), {
+    minutes: 0,
+    seconds: 0,
+    milliseconds: 0,
+  })
+  const startDatetime = set(initial, { hours: start })
+  const endDatetime = add(startDatetime, { hours: duration })
+
+  return {
+    startDatetime: formatDate(startDatetime),
+    endDatetime: formatDate(endDatetime),
+    timestamp: formatTimestampToUTC(startDatetime),
+  }
+}
+
+const createEvent = ({ summary, day, start, end, dayIndex }) => {
+  // dtstamp, uid, dtstart, dtend | duraWtion - are required
+  const byDay = formatByDay(day)
+  const { startDatetime, endDatetime, timestamp } = getDates(
+    start,
+    end,
+    dayIndex
+  )
+
   return `BEGIN:VEVENT
-DTSTART;TZID=Europe/Kiev:20230109T010000
-DTEND;TZID=Europe/Kiev:20230109T050000
-RRULE:FREQ=WEEKLY;BYDAY=MO
-DTSTAMP:20240605T131334Z
-UID:46bf67q1r9tqnhoh3m2cq9q09o@google.com
+DTSTAMP:${timestamp}
+UID:${timestamp}@google.com
+DTSTART;TZID=Europe/Kiev:${startDatetime}
+DTEND;TZID=Europe/Kiev:${endDatetime}
+RRULE:FREQ=WEEKLY;BYDAY=${byDay}
 CLASS:PRIVATE
-CREATED:20230104T134528Z
-LAST-MODIFIED:20230104T135018Z
-SEQUENCE:0
 STATUS:CONFIRMED
-SUMMARY:light on
+SUMMARY:${summary}
 TRANSP:OPAQUE
 END:VEVENT`
 }
 
+const getRecords = (data) => {
+  return Object.entries(data)
+    .map(([day, records]) => {
+      const dayIndex = DAYS_OF_WEEK.findIndex((d) => d === day)
+
+      return records.map(({ summary, time }) => ({
+        day,
+        dayIndex,
+        summary,
+        start: parseInt(time.split('-')[0]),
+        end: parseInt(time.split('-')[1]),
+      }))
+    })
+    .flat()
+}
+
 const createCalendar = async () => {
   const template = await readFile(TEMPLATE_PATH, 'utf8')
-  const event = createEvent()
-  const calendar = template.replace('// insert events', event)
+  const records = getRecords(schedule)
+  const events = records.map(createEvent).join('\n')
+  const calendar = template.replace('// insert events', events)
   writeFile(NEW_CALENDAR_PATH, calendar)
 }
 
